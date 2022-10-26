@@ -15,6 +15,8 @@ from embed_pocket import PocketEncoder, pdb_to_json
 from hgraph import HierVAE, PairVocab, common_atom_vocab, MolGraph
 
 
+device = "cpu" if torch.cuda.is_available() else "cpu"
+
 def to_numpy(tensors):
     convert = lambda x: x.numpy() if type(x) is torch.Tensor else x
     a, b, c = tensors
@@ -86,7 +88,7 @@ args.vocab = PairVocab(vocab, cuda=False)
 class JointVAE(nn.Module):
     def __init__(self):
         super(JointVAE, self).__init__()
-        self.pocket_encoder = PocketEncoder()
+        self.pocket_encoder = PocketEncoder().to(device)
         self.ligand_vae = HierVAE(args)
 
         # start from pretrained Hgraph weights
@@ -107,16 +109,16 @@ class JointVAE(nn.Module):
         json = [pdb_to_json(pocket)]
         node_counts = [len(entry["seq"]) for entry in json]
         sampler = gvp.data.BatchSampler(node_counts, max_nodes=3000)
-        dataset = gvp.data.ProteinGraphDataset(json, device="cuda")
+        dataset = gvp.data.ProteinGraphDataset(json)
         dataloader = DataLoader(dataset, batch_sampler=sampler)
 
         for batch in dataloader:
-            # batch = batch.to(device) # optional
+            batch = batch.to(device) # optional
             nodes = (batch.node_s, batch.node_v)
             edges = (batch.edge_s, batch.edge_v)
             root_vecs = self.pocket_encoder(nodes, batch.edge_index, edges)
 
-        return root_vecs
+        return root_vecs.to("cpu")
 
     def forward(self, pocket, ligand, beta=0.1, perturb_z=True):
         """
@@ -158,7 +160,7 @@ class JointVAE(nn.Module):
         return smiles_list
 
 
-model = JointVAE().to("cuda")
+model = JointVAE()
 optimizer = torch.optim.Adam(model.parameters())
 
 pdbparser = PDBParser()
@@ -173,13 +175,19 @@ proteins = [
 ligands = df["canonical_smiles"].to_list()
 
 losses = []
-sampled_smiles = ["original"] + [f"gen_{i+1}" for i in range(10)]
+header = ["original"] + [f"gen_{i+1}" for i in range(10)]
+sampled_smiles = [",".join(header) + "\n"]
 
 test_fp = Path("/content/latent-pockets/data/par2_pocket_6A.pdb")
 test_pocket = pdbparser.get_structure(test_fp.stem, test_fp)
 test_samples = []
 
-for i, (protein, ligand) in tqdm(enumerate(zip(proteins, ligands))):
+examples = list(zip(proteins, ligands))
+
+# shuffle input order
+random.shuffle(examples)
+
+for i, (protein, ligand) in tqdm(enumerate(examples)):
     try:
         with torch.no_grad():
             try:
@@ -197,24 +205,23 @@ for i, (protein, ligand) in tqdm(enumerate(zip(proteins, ligands))):
         losses.append(loss.item())
         optimizer.step()
 
-        # if loss.item() < 30.0:
-        #     try:
-        #         samples = model.predict(pocket)
-        #         print(f"Protein: {protein.stem}")
-        #         print(f"Real ligand: {ligand}")
-        #         print(samples)
-        #         samples = ",".join(samples)
-        #         sampled_smiles.append(f"{ligand},{samples}\n")
-        #     except Exception as err:
-        #         logging.warning(err)
-
-        # if i % 100 == 0:
-        #     try:
-        #         samples = model.predict(test_pocket)
-        #         test_samples.append(",".join(samples))
-        #     except Exception as err:
-        #         logging.warning("TEST FAILED")
-    except KeyboardInterrupt:
+        if loss.item() < 50.0:
+            try:
+                samples = model.predict(pocket)
+                print(f"Protein: {protein.stem}")
+                print(f"Real ligand: {ligand}")
+                print(samples)
+                samples = ",".join(samples)
+                sampled_smiles.append(f"{ligand},{samples}\n")
+            except Exception as err:
+                logging.warning(err)
+        if i % 100 == 0:
+            try:
+                samples = model.predict(test_pocket)
+                test_samples.append(",".join(samples))
+            except Exception as err:
+                logging.warning("TEST FAILED")
+    except:
         break
 
 
