@@ -74,7 +74,8 @@ def embed(structures):
         mean = gvp_conv(nodes, batch.edge_index, edges)
 
 
-fp = Path("/home/tianyu/code/hgraph2graph/data/structures/pockets_6A/CHEMBL205_1zsb_pocket.pdb")
-structure = parser.get_structure(fp.stem, fp)
+if __name__ == "__main__":
+    fp = Path("/home/tianyu/code/hgraph2graph/data/structures/pockets_6A/CHEMBL205_1zsb_pocket.pdb")
+    structure = parser.get_structure(fp.stem, fp)
 
-pocket_embedding = embed([structure])
+    pocket_embedding = embed([structure])
