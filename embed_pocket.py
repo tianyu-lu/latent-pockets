@@ -6,6 +6,7 @@ import gvp
 import gvp.data
 import torch.nn as nn
 from torch_geometric.loader import DataLoader
+from torch_scatter import scatter_mean
 
 parser = PDBParser()
 
@@ -41,19 +42,21 @@ class PocketEncoder(nn.Module):
         self.layer_norm = gvp.LayerNorm(node_dims)
         self.conv1 = gvp.GVPConvLayer(node_dims, edge_dims)
         self.conv2 = gvp.GVPConvLayer(node_dims, edge_dims)
-        self.mean = nn.Linear(kwargs["node_s"], latent)
+        self.latent_mean = nn.Linear(kwargs["node_s"], latent)
         # self.var = nn.Linear(kwargs["node_s"], latent)
 
-    def forward(self, nodes, edge_index, edges):
+    def forward(self, nodes, edge_index, edges, batch_idx):
         nodes = self.conv0(nodes, edge_index, edges)
         nodes = self.layer_norm(nodes)
         nodes = self.conv1(nodes, edge_index, edges)
         nodes = self.layer_norm(nodes)
         nodes = self.conv2(nodes, edge_index, edges)
         nodes = self.layer_norm(nodes)
-        hid = nodes[0].mean(-2)
-        # return self.mean(hid), self.var(hid)
-        return self.mean(hid)
+
+        # take scalar features only
+        hid = scatter_mean(nodes[0], batch_idx, dim=0)
+        
+        return self.latent_mean(hid)
 
 
 gvp_conv = PocketEncoder()
@@ -71,7 +74,7 @@ def embed(structures):
         nodes = (batch.node_s, batch.node_v)
         edges = (batch.edge_s, batch.edge_v)
         # mean, var = gvp_conv(nodes, batch.edge_index, edges)
-        mean = gvp_conv(nodes, batch.edge_index, edges)
+        mean = gvp_conv(nodes, batch.edge_index, edges, batch.batch)
 
 
 if __name__ == "__main__":
