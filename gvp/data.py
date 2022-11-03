@@ -11,8 +11,9 @@ def _normalize(tensor, dim=-1):
     '''
     Normalizes a `torch.Tensor` along dimension `dim` without `nan`s.
     '''
-    return torch.nan_to_num(
-        torch.div(tensor, torch.norm(tensor, dim=dim, keepdim=True)))
+    # return torch.nan_to_num(
+    #     torch.div(tensor, torch.norm(tensor, dim=dim, keepdim=True)))
+    return torch.div(tensor, torch.norm(tensor, dim=dim, keepdim=True))
 
 
 def _rbf(D, D_min=0., D_max=20., D_count=16, device='cpu'):
@@ -186,8 +187,8 @@ class ProteinGraphDataset(data.Dataset):
             edge_s = torch.cat([rbf, pos_embeddings], dim=-1)
             edge_v = _normalize(E_vectors).unsqueeze(-2)
             
-            node_s, node_v, edge_s, edge_v = map(torch.nan_to_num,
-                    (node_s, node_v, edge_s, edge_v))
+            # node_s, node_v, edge_s, edge_v = map(torch.nan_to_num,
+            #         (node_s, node_v, edge_s, edge_v))
             
         data = torch_geometric.data.Data(x=X_ca, seq=seq, name=name,
                                          node_s=node_s, node_v=node_v,
