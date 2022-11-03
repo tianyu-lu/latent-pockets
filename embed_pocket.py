@@ -4,6 +4,7 @@ from Bio.PDB import PDBParser, Selection
 from Bio.SeqUtils import seq1
 import gvp
 import gvp.data
+import torch
 import torch.nn as nn
 from torch_geometric.loader import DataLoader
 from torch_scatter import scatter_mean
@@ -45,6 +46,23 @@ class PocketEncoder(nn.Module):
         self.latent_mean = nn.Linear(kwargs["node_s"], latent)
         # self.var = nn.Linear(kwargs["node_s"], latent)
 
+        self.W_mean = nn.Linear(latent, 32)
+        self.W_var = nn.Linear(latent, 32)
+
+    def rsample(self, z_vecs, perturb=True):
+        batch_size = z_vecs.size(0)
+        z_mean = self.W_mean(z_vecs)
+        z_log_var = -torch.abs(self.W_var(z_vecs))
+        kl_loss = (
+            -0.5
+            * torch.sum(1.0 + z_log_var - z_mean * z_mean - torch.exp(z_log_var))
+            / batch_size
+        )
+        epsilon = torch.randn_like(z_mean)
+        z_vecs = z_mean + torch.exp(z_log_var / 2) * epsilon if perturb else z_mean
+
+        return z_vecs, kl_loss
+
     def forward(self, nodes, edge_index, edges, batch_idx):
         nodes = self.conv0(nodes, edge_index, edges)
         nodes = self.layer_norm(nodes)
@@ -54,7 +72,7 @@ class PocketEncoder(nn.Module):
         nodes = self.layer_norm(nodes)
 
         # take scalar features only
-        hid = scatter_mean(nodes[0], batch_idx, dim=0)
+        hid = scatter_mean(nodes[0], batch_idx.type(torch.LongTensor), dim=0)
         
         return self.latent_mean(hid)
 
