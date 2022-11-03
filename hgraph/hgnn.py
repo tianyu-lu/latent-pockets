@@ -39,7 +39,7 @@ class HierVAE(nn.Module):
             args.rnn_type,
             args.embed_size,
             args.hidden_size,
-            args.latent_size,
+            args.latent_size*2,
             args.diterT,
             args.diterG,
             args.dropout,
@@ -60,8 +60,16 @@ class HierVAE(nn.Module):
             / batch_size
         )
         epsilon = torch.randn_like(z_mean)
-        # z_vecs = z_mean + torch.exp(z_log_var / 2) * epsilon if perturb else z_mean
-        z_vecs = z_mean + epsilon
+        z_vecs = z_mean + torch.exp(z_log_var / 2) * epsilon if perturb else z_mean
+        
+        # z_vecs = z_mean + epsilon
+
+        # turn last four dimensions into random vectors independent of z_mean
+        # rand_mask = torch.zeros_like(z_mean)
+        # rand_mask[-4:] = 1.0
+        # noise = torch.randn_like(z_mean) * rand_mask
+        # z_vecs = z_vecs * rand_mask + torch.exp(z_log_var / 2) * noise
+
         return z_vecs, kl_loss
 
     def sample(self, batch_size, greedy):
