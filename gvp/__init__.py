@@ -50,7 +50,7 @@ def _norm_no_nan(x, axis=-1, keepdims=False, eps=1e-8, sqrt=True):
     
     :param sqrt: if `False`, returns the square of the L2 norm
     '''
-    out = torch.clamp(torch.sum(torch.square(x), axis, keepdims), min=eps)
+    out = torch.clamp(torch.sum(x**2, axis, keepdims), min=eps)
     return torch.sqrt(out) if sqrt else out
 
 def _split(x, nv):
