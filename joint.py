@@ -4,15 +4,18 @@ from pathlib import Path
 import random
 
 from Bio.PDB import PDBParser
+import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
-import gvp
+from diversity import similarity_matrix
 from embed_pocket import PocketEncoder, pdb_to_json
+import gvp
 from hgraph import HierVAE, PairVocab, common_atom_vocab, MolGraph
+# from vendi_score import vendi
 
 
 def to_numpy(tensors):
@@ -38,8 +41,8 @@ def make_cuda(tensors):
 
 
 parser = argparse.ArgumentParser()
-# parser.add_argument("--vocab", type=str, default="/home/tianyu/code/hgraph2graph/data/chembl30/standardized_vocab.txt")
-parser.add_argument("--vocab", type=str, default="/home/tianyu/code/hgraph2graph/data/chembl/vocab.txt")
+parser.add_argument("--vocab", type=str, default="/home/tianyu/code/hgraph2graph/data/chembl30/high_affinity_vocab.txt")
+# parser.add_argument("--vocab", type=str, default="/home/tianyu/code/hgraph2graph/data/chembl/vocab.txt")
 parser.add_argument("--atom_vocab", default=common_atom_vocab)
 parser.add_argument("--save_dir", type=str, default="/home/tianyu/code/hgraph2graph/tmp")
 parser.add_argument("--load_model", default=None)
@@ -87,19 +90,19 @@ class JointVAE(nn.Module):
         self.ligand_vae = HierVAE(args)
 
         # start from pretrained Hgraph weights
-        model_state, optimizer_state, total_step, beta = torch.load("/home/tianyu/code/hgraph2graph/ckpt/chembl-pretrained/model.ckpt", map_location=torch.device('cpu'))
-        self.ligand_vae.load_state_dict(model_state)
+        # model_state, optimizer_state, total_step, beta = torch.load("/home/tianyu/code/hgraph2graph/ckpt/chembl-pretrained/model.ckpt", map_location=torch.device('cpu'))
+        # self.ligand_vae.load_state_dict(model_state)
 
         # freeze weights of ligand generative model
-        for param in self.ligand_vae.parameters():
-            param.requires_grad = False
+        # for param in self.ligand_vae.parameters():
+        #     param.requires_grad = False
 
-    def get_latent(self, pocket):
+    def get_pocket_latent(self, pockets):
         """
         Given a pocket, compute its latent representation
         """
         # encode pocket into latent space
-        json = [pdb_to_json(pocket)]
+        json = [pdb_to_json(pocket) for pocket in pockets]
         node_counts = [len(entry['seq']) for entry in json]
         sampler = gvp.data.BatchSampler(node_counts, max_nodes=3000)
         dataset = gvp.data.ProteinGraphDataset(json)
@@ -109,35 +112,49 @@ class JointVAE(nn.Module):
             # batch = batch.to(device) # optional
             nodes = (batch.node_s, batch.node_v)
             edges = (batch.edge_s, batch.edge_v)
-            root_vecs = self.pocket_encoder(nodes, batch.edge_index, edges)
+            root_vecs = self.pocket_encoder(nodes, batch.edge_index, edges, batch.batch)
 
         return root_vecs
 
-    def forward(self, pocket, ligand, beta=0.1, perturb_z=True):
+    def forward(self, pockets, ligands, beta=0.1, perturb_pocket=False, perturb_ligand=True):
         """
         pocket: pdb file of pocket residues
         ligand: smiles string of ligand
         """
-        root_vecs = self.get_latent(pocket)
 
-        # decode latent into ligand
-        # used to compute loss
-        graphs, tensors, orders = tensorize([ligand], vocab=args.vocab)
+        pocket_vecs = self.get_pocket_latent(pockets)
+        pocket_vecs, pocket_kl = self.pocket_encoder.rsample(pocket_vecs, perturb=perturb_pocket)
+
+        # featurize ligand
+        graphs, tensors, orders = tensorize(ligands, vocab=args.vocab)
         tree_tensors, graph_tensors = tensors = make_cuda(tensors)
 
-        root_vecs, kl_div = self.ligand_vae.rsample(root_vecs, self.ligand_vae.R_mean, self.ligand_vae.R_var, perturb_z)
-        root_vecs = root_vecs.reshape(1, 32)
+        # latent of ligand computed with Hgraph encoder
+        true_root_vecs, _, _, _ = self.ligand_vae.encoder(tree_tensors, graph_tensors)
 
+        # TODO: contrastive loss
+
+        # reparameterization
+        true_root_vecs, ligand_kl = self.ligand_vae.rsample(true_root_vecs, self.ligand_vae.R_mean, self.ligand_vae.R_var, perturb=perturb_ligand)
+        true_root_vecs = true_root_vecs.reshape(len(ligands), 32)
+
+        root_vecs = torch.cat((true_root_vecs, pocket_vecs), dim=-1)
+
+        # decode latent into ligand
         loss, wacc, iacc, tacc, sacc = self.ligand_vae.decoder(
             (root_vecs, root_vecs, root_vecs), graphs, tensors, orders
         )
-        return loss + beta * kl_div, kl_div.item(), wacc, iacc, tacc, sacc
+        return loss + beta * ligand_kl, ligand_kl.item(), wacc, iacc, tacc, sacc
 
-    def predict(self, pocket, nsamples: int = 10):
+    def predict(self, pockets, nsamples: int = 10):
         """
-        Given a pocket, use its latent representations to generate diverse ligands
+        Given pockets, use its latent representations to generate diverse ligands
         """
-        root_vecs = self.get_latent(pocket)
+        pocket_vecs = self.get_pocket_latent(pockets)
+
+        normal = torch.randn_like(pocket_vecs)
+
+        root_vecs = torch.cat((normal, pocket_vecs), dim=0)
 
         root_vecs = root_vecs.repeat(nsamples, 1)
 
@@ -154,66 +171,110 @@ optimizer = torch.optim.Adam(model.parameters())
 
 pdbparser = PDBParser()
 
-df = pd.read_csv("/home/tianyu/code/hgraph2graph/data/chembl30/standardized_data_cleaned.csv")
+df = pd.read_csv("/home/tianyu/code/hgraph2graph/data/chembl30/standardized_data_high_affinity.csv")
 
 base_fp = Path("/home/tianyu/code/hgraph2graph/data/structures/pockets_6A")
 proteins = [base_fp / f"{chembl_id}_{pdb}_pocket.pdb" for chembl_id, pdb in zip(df["target_chembl_id"], df["pdb"])]
 ligands = df["canonical_smiles"].to_list()
 
 losses = []
-sampled_smiles = ["original"] + [f"gen_{i+1}" for i in range(10)]
+sampled_smiles = ["pdb", "original"] + [f"gen_{i+1}" for i in range(10)]
+with open("samples.txt", "w") as fp:
+    fp.write(",".join(sampled_smiles) + "\n")
+with open("diversity.txt", "w") as fp:
+    fp.write("Tanimoto,Vendi Score\n")
 
 test_fp = Path("/home/tianyu/code/hgraph2graph/data/par2/par2_pocket_6A.pdb")
 test_pocket = pdbparser.get_structure(test_fp.stem, test_fp)
 test_samples = []
 
-for i, (protein, ligand) in tqdm(enumerate(zip(proteins, ligands))):
-    try:
+examples = list(zip(proteins, ligands))
+
+# shuffle input order
+random.shuffle(examples)
+n_train = int(0.8 * len(examples))
+n_val = int(0.10 * len(examples))
+train_examples = examples[:n_train]
+val_examples = examples[n_train:n_train+n_val]
+test_examples = examples[n_train+n_val:]
+
+
+def chunk(iterable, n=8):
+    l = len(iterable)
+    for ndx in range(0, l, n):
+        yield iterable[ndx:min(ndx + n, l)]
+
+
+def passing(proteins, ligands):
+    p_proteins, p_ligands = [], []
+    for i, ligand in enumerate(ligands):
         with torch.no_grad():
             try:
                 tensorize([ligand], vocab=args.vocab)
+                if Path(proteins[i]).exists():
+                    p_ligands.append(ligand)
+                    p_proteins.append(proteins[i])
             except:
                 logging.warning(ligand)
                 continue
+    return p_proteins, p_ligands
 
-        pocket = pdbparser.get_structure(protein.stem, protein)
+
+for i, batch in tqdm(enumerate(chunk(train_examples))):
+    try:
+        proteins, ligands = zip(*batch)
+
+        # try:
+        p_proteins, p_ligands = passing(proteins, ligands)
+        if len(p_ligands) == 0:
+            continue
+
+        pockets = [pdbparser.get_structure(p.stem, p) for p in p_proteins]
 
         optimizer.zero_grad()
-        loss, kl, wacc, iacc, tacc, sacc = model(pocket, ligand)
+        loss, kl, wacc, iacc, tacc, sacc = model(pockets, p_ligands)
         loss.backward()
-        print(loss.item())
-        losses.append(loss.item())
+        print(loss.item() / 1.0)
+        with open("train_losses.txt", "a+") as fp:
+            fp.write(f"{loss.item() / 1.0}\n")
         optimizer.step()
 
-        # if loss.item() < 30.0:
-        #     try:
-        #         samples = model.predict(pocket)
-        #         print(f"Protein: {protein.stem}")
-        #         print(f"Real ligand: {ligand}")
-        #         print(samples)
-        #         samples = ",".join(samples)
-        #         sampled_smiles.append(f"{ligand},{samples}\n")
-        #     except Exception as err:
-        #         logging.warning(err)
+        if loss.item() < 10.0:
+            try:
+                samples = model.predict(pockets)
+                with open("samples.txt", "a+") as fp:
+                    for i, smp in enumerate(chunk(samples, n=10)):
+                        samples_txt = ",".join(smp)
+                        fp.write(f"{p_proteins[i]},{p_ligands[i]},{samples_txt}\n")
 
-        # if i % 100 == 0:
-        #     try:
-        #         samples = model.predict(test_pocket)
-        #         test_samples.append(",".join(samples))
-        #     except Exception as err:
-        #         logging.warning("TEST FAILED")
-    except KeyboardInterrupt:
-        break
-
-
-with open("losses.txt", "w") as fp:
-    for loss in losses:
-        fp.write(f"{loss}\n")
-
-with open("samples.txt", "w") as fp:
-    for smiles in sampled_smiles:
-        fp.write(smiles)
-
-with open("test_samples.txt", "w") as fp:
-    for smiles in test_samples:
-        fp.write(smiles)
+                mat = similarity_matrix(samples)
+                tanimoto = np.mean(mat)
+                # vend = vendi.score_K(mat)
+                vend = 0.0
+                with open("diversity.txt", "a+") as fp:
+                    fp.write(f"{tanimoto},{vend}\n")
+            except Exception as err:
+                logging.warning(err)
+        if i % 10 == 0:
+            random.shuffle(val_examples)
+            for j, batch in tqdm(enumerate(chunk(val_examples))):
+                proteins, ligands = zip(*batch)
+                p_proteins, p_ligands = passing(proteins, ligands)
+                if len(p_ligands) != 0:
+                    pockets = [pdbparser.get_structure(p.stem, p) for p in p_proteins]
+                    with torch.no_grad():
+                        loss, kl, wacc, iacc, tacc, sacc = model(pockets, p_ligands)
+                    with open("val_losses.txt", "a+") as fp:
+                        fp.write(f"{loss.item() / 1.0}\n")
+                break
+        if i % 100 == 0:
+            try:
+                samples = model.predict([test_pocket])
+                with open("test_samples.txt", "a+") as fp:
+                    fp.write(",".join(samples) + "\n")
+            except Exception as err:
+                with open("test_samples.txt", "a+") as fp:
+                    fp.write("TEST FAILED\n")
+    except KeyError as err:
+        logging.warning(err)
+        continue
