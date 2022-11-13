@@ -2,23 +2,30 @@ import matplotlib.pyplot as plt
 
 plt.rcParams["figure.dpi"] = 300
 
-losses = []
 
-with open("logs.txt", "r") as fp:
-    for line in fp.readlines():
-        if "it" in line and "]" in line:
-            try:
-                loss = float(line.strip().split("]")[-1])
-                losses.append(loss)
-            except:
-                continue
+def read_losses(fname):
+    losses = []
 
-avg = []
-for i in range(len(losses) - 32):
-    avg.append(sum(losses[i:i+32]) / 32)
+    with open(fname, "r") as fp:
+        for line in fp.readlines():
+            losses.append(float(line.strip()))
 
-plt.plot(avg)
-plt.title("GVP-Hgraph Trial 1")
+    avg = []
+    for i in range(len(losses) - 200):
+        avg.append(sum(losses[i:i+200]) / 200)
+
+    return avg
+
+
+losses = read_losses("losses_1.txt")[:14000]
+plt.plot(losses, label="Frozen decoder")
+losses = read_losses("losses_2.txt")[:14000]
+plt.plot(losses, label="Trainable decoder")
+losses = read_losses("losses_3.txt")[:14000]
+plt.plot(losses, label="No Pretraining")
+
+plt.title("GVP-Hgraph")
 plt.xlabel("Step")
 plt.ylabel("Loss")
-plt.savefig("trial_1.png")
+plt.legend()
+plt.savefig("trial_comp.png")
