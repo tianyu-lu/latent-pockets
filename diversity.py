@@ -4,7 +4,7 @@ import numpy as np
 from scipy.stats import entropy
 import seaborn as sns
 import matplotlib.pyplot as plt
-from vendi_score import vendi
+# from vendi_score import vendi
 
 featurizer = dc.feat.CircularFingerprint(size=2048, radius=4)
 
@@ -30,13 +30,14 @@ def similarity_matrix(smiles):
     return mat + mat.T + np.eye(len(smiles))
 
 
-# smiles = ['CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1Cl', 'CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1Cl', 'CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1S(=O)(=O)N1CCCC1', 'CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1S(=O)(=O)N1CCCC1', 'CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1S(=O)(=O)N1CCCC1', 'CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1Cl', 'CC(=O)Nc1ccc(Cl)c(S(=O)(=O)N2CCCC2)c1', 'CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1S(=O)(=O)N1CCCC1', 'CC(=O)Nc1ccc(S(=O)(=O)Nc2ccc(NC(=O)CN3C(=O)NC(=O)C3=O)cc2Cl)cc1', 'CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1S(=O)(=O)N1CCCC1']
-smiles = ['Cc1ccc(Cl)c(Cl)c1Cl', 'COc1ccc(C(=O)Nc2ccc(Cl)c(Cl)c2)cc1', 'COc1ccc(C(=O)Nc2ccc(Cl)c(Cl)c2)cc1Cl', 'COc1ccc(C(=O)Nc2ccc(Cl)c(Cl)c2)cc1Cl', 'Cc1ccc(Cl)c(Cl)c1Cl', 'Cc1ccc(Cl)c(Cl)c1Cl', 'COc1ccc(C(=O)Nc2ccc(Cl)c(Cl)c2)cc1Cl', 'Cc1ccc(Cl)c(Cl)c1Cl', 'Cc1ccc(Cl)c(Cl)c1Cl', 'Oc1ccc(Cl)c(Cl)c1Cl']
+if __name__ == "__main__":
+    # smiles = ['CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1Cl', 'CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1Cl', 'CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1S(=O)(=O)N1CCCC1', 'CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1S(=O)(=O)N1CCCC1', 'CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1S(=O)(=O)N1CCCC1', 'CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1Cl', 'CC(=O)Nc1ccc(Cl)c(S(=O)(=O)N2CCCC2)c1', 'CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1S(=O)(=O)N1CCCC1', 'CC(=O)Nc1ccc(S(=O)(=O)Nc2ccc(NC(=O)CN3C(=O)NC(=O)C3=O)cc2Cl)cc1', 'CC(=O)Nc1ccc(S(=O)(=O)N2CCCC2)cc1S(=O)(=O)N1CCCC1']
+    smiles = ['Cc1ccc(Cl)c(Cl)c1Cl', 'COc1ccc(C(=O)Nc2ccc(Cl)c(Cl)c2)cc1', 'COc1ccc(C(=O)Nc2ccc(Cl)c(Cl)c2)cc1Cl', 'COc1ccc(C(=O)Nc2ccc(Cl)c(Cl)c2)cc1Cl', 'Cc1ccc(Cl)c(Cl)c1Cl', 'Cc1ccc(Cl)c(Cl)c1Cl', 'COc1ccc(C(=O)Nc2ccc(Cl)c(Cl)c2)cc1Cl', 'Cc1ccc(Cl)c(Cl)c1Cl', 'Cc1ccc(Cl)c(Cl)c1Cl', 'Oc1ccc(Cl)c(Cl)c1Cl']
 
-mat = similarity_matrix(smiles)
+    mat = similarity_matrix(smiles)
 
-print()
-print(f"Vendi = {vendi.score_K(mat)} | Avg = {np.mean(mat)}")
+    print()
+    # print(f"Vendi = {vendi.score_K(mat)} | Avg = {np.mean(mat)}")
 
-sns.clustermap(mat)
-plt.show()
+    sns.clustermap(mat)
+    plt.show()
