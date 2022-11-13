@@ -183,6 +183,9 @@ class ProteinGraphDataset(data.Dataset):
             sidechains = self._sidechains(coords)
             
             node_s = dihedrals
+            onehotseq = F.one_hot(seq).type(torch.FloatTensor)
+            node_s = torch.cat([node_s, onehotseq], dim=-1)
+
             node_v = torch.cat([orientations, sidechains.unsqueeze(-2)], dim=-2)
             edge_s = torch.cat([rbf, pos_embeddings], dim=-1)
             edge_v = _normalize(E_vectors).unsqueeze(-2)
