@@ -35,10 +35,11 @@ class PocketEncoder(nn.Module):
 
         kwargs = {"node_s": 256, "node_v": 3}
 
-        in_dims = 6 + 20, 3
+        in_dims = 32, 3
         node_dims = kwargs["node_s"], kwargs["node_v"]
         edge_dims = 32, 1
         latent = 250
+        self.token_emb = nn.Embedding(20, 32)
         self.conv0 = gvp.GVPConv(in_dims, node_dims, edge_dims)
         self.layer_norm = gvp.LayerNorm(node_dims)
         self.conv1 = gvp.GVPConvLayer(node_dims, edge_dims)
@@ -64,7 +65,9 @@ class PocketEncoder(nn.Module):
         return z_vecs, kl_loss
 
     def forward(self, nodes, edge_index, edges, batch_idx):
-        nodes = self.conv0(nodes, edge_index, edges)
+        node_s, node_v = nodes
+        node_s = self.token_emb(node_s)
+        nodes = self.conv0((node_s, node_v), edge_index, edges)
         nodes = self.layer_norm(nodes)
         nodes = self.conv1(nodes, edge_index, edges)
         nodes = self.layer_norm(nodes)
