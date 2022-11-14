@@ -35,7 +35,7 @@ class PocketEncoder(nn.Module):
 
         kwargs = {"node_s": 256, "node_v": 3}
 
-        in_dims = 6, 3
+        in_dims = 6 + 20, 3
         node_dims = kwargs["node_s"], kwargs["node_v"]
         edge_dims = 32, 1
         latent = 250
@@ -89,6 +89,7 @@ def embed(structures):
 
     for batch in dataloader:
         # batch = batch.to(device) # optional
+        # import ipdb; ipdb.set_trace()
         nodes = (batch.node_s, batch.node_v)
         edges = (batch.edge_s, batch.edge_v)
         # mean, var = gvp_conv(nodes, batch.edge_index, edges)
